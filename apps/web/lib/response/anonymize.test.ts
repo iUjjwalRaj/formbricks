@@ -16,6 +16,14 @@ const buildFullMeta = (): TResponseMeta => ({
   country: "DE",
   action: "clicked-cta",
   ipAddress: "203.0.113.7",
+  screenWidth: 1920,
+  screenHeight: 1080,
+  viewportWidth: 1280,
+  viewportHeight: 720,
+  timezone: "Europe/Berlin",
+  locale: "de-DE",
+  pagePath: "/feedback",
+  pageReferrer: "https://google.com/search?q=formbricks&token=secret",
 });
 
 describe("applyAnonymizePolicy", () => {
@@ -41,13 +49,22 @@ describe("applyAnonymizePolicy", () => {
     expect(anonymized).not.toHaveProperty("ipAddress");
     // The whole userAgent object goes, because browser/os/deviceType are all `drop`.
     expect(anonymized).not.toHaveProperty("userAgent");
+    // Client device & location fingerprints are `drop`
+    expect(anonymized).not.toHaveProperty("screenWidth");
+    expect(anonymized).not.toHaveProperty("screenHeight");
+    expect(anonymized).not.toHaveProperty("viewportWidth");
+    expect(anonymized).not.toHaveProperty("viewportHeight");
+    expect(anonymized).not.toHaveProperty("timezone");
 
     // `redactQuery`
     expect(anonymized.url).toBe("https://example.com/survey");
+    expect(anonymized.pageReferrer).toBe("https://google.com/search");
 
     // `keep`
     expect(anonymized.source).toBe("link");
     expect(anonymized.action).toBe("clicked-cta");
+    expect(anonymized.locale).toBe("de-DE");
+    expect(anonymized.pagePath).toBe("/feedback");
   });
 
   test("keeps `utm*` campaign attribution, which rides as its own meta key", () => {
@@ -208,7 +225,7 @@ describe("a suppressed reserved field resolves as unset", () => {
     meta,
   });
 
-  test("projectReservedValues omits the key rather than projecting an empty string", () => {
+  test("projectReservedValues omits the key rather than projecting an empty string when anonymized", () => {
     const anonymizedMeta = applyAnonymizePolicy(buildFullMeta(), true);
     const projected = projectReservedValues(RESERVED_FIELD_CATALOG, buildResponse(anonymizedMeta));
 
@@ -217,9 +234,37 @@ describe("a suppressed reserved field resolves as unset", () => {
     expect(projected).not.toHaveProperty("os");
     expect(projected).not.toHaveProperty("deviceType");
     expect(projected).not.toHaveProperty("ipAddress");
+    expect(projected).not.toHaveProperty("screenWidth");
+    expect(projected).not.toHaveProperty("screenHeight");
+    expect(projected).not.toHaveProperty("viewportWidth");
+    expect(projected).not.toHaveProperty("viewportHeight");
+    expect(projected).not.toHaveProperty("timezone");
     // Not suppressed, so still projected — proving the omissions above are the policy, not a broken read.
     expect(projected.source).toBe("link");
     expect(projected.url).toBe("https://example.com/survey");
+    expect(projected.locale).toBe("de-DE");
+    expect(projected.pagePath).toBe("/feedback");
+  });
+
+  test("projectReservedValues includes all client fields when the survey is not anonymized", () => {
+    const nonAnonymizedMeta = applyAnonymizePolicy(buildFullMeta(), false);
+    const projected = projectReservedValues(RESERVED_FIELD_CATALOG, buildResponse(nonAnonymizedMeta));
+
+    expect(projected).toHaveProperty("country", "DE");
+    expect(projected).toHaveProperty("browser", "Chrome");
+    expect(projected).toHaveProperty("os", "macOS");
+    expect(projected).toHaveProperty("deviceType", "desktop");
+    expect(projected).toHaveProperty("ipAddress", "203.0.113.7");
+    expect(projected).toHaveProperty("screenWidth", 1920);
+    expect(projected).toHaveProperty("screenHeight", 1080);
+    expect(projected).toHaveProperty("viewportWidth", 1280);
+    expect(projected).toHaveProperty("viewportHeight", 720);
+    expect(projected).toHaveProperty("timezone", "Europe/Berlin");
+    expect(projected).toHaveProperty("source", "link");
+    expect(projected).toHaveProperty("url", "https://example.com/survey");
+    expect(projected).toHaveProperty("pageReferrer", "https://google.com/search");
+    expect(projected).toHaveProperty("locale", "de-DE");
+    expect(projected).toHaveProperty("pagePath", "/feedback");
   });
 
   test("the recall fallback fires for a suppressed field", () => {
@@ -229,11 +274,16 @@ describe("a suppressed reserved field resolves as unset", () => {
     expect(parseRecallInfo("You are in #recall:country/fallback:unknown#", projected)).toBe(
       "You are in unknown"
     );
+    expect(parseRecallInfo("Zone: #recall:timezone/fallback:UTC#", projected)).toBe("Zone: UTC");
+    expect(parseRecallInfo("Width: #recall:screenWidth/fallback:default#", projected)).toBe("Width: default");
   });
 
   test("the same token renders the real value when the survey is not anonymized", () => {
-    const projected = projectReservedValues(RESERVED_FIELD_CATALOG, buildResponse(buildFullMeta()));
+    const nonAnonymizedMeta = applyAnonymizePolicy(buildFullMeta(), false);
+    const projected = projectReservedValues(RESERVED_FIELD_CATALOG, buildResponse(nonAnonymizedMeta));
 
     expect(parseRecallInfo("You are in #recall:country/fallback:unknown#", projected)).toBe("You are in DE");
+    expect(parseRecallInfo("Zone: #recall:timezone/fallback:UTC#", projected)).toBe("Zone: Europe/Berlin");
+    expect(parseRecallInfo("Width: #recall:screenWidth/fallback:default#", projected)).toBe("Width: 1920");
   });
 });
